@@ -1,9 +1,13 @@
 <script>
 import { loadTasks } from './store/tasks'
+import { loadCategories } from './store/categories'
+import { initSync } from './store/sync'
 
 export default {
   onLaunch() {
+    loadCategories()
     loadTasks()
+    initSync()
   }
 }
 </script>

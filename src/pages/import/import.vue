@@ -37,6 +37,25 @@
       </view>
 
       <view v-if="items.length" class="section">
+        <text class="section-label">归到</text>
+        <view class="chips">
+          <view
+            class="chip"
+            :class="{ active: importCategory === '' }"
+            @click="importCategory = ''"
+          >不归类</view>
+          <view
+            v-for="c in categories"
+            :key="c.id"
+            class="chip"
+            :class="{ active: importCategory === c.id }"
+            :style="catChipStyle(c)"
+            @click="importCategory = c.id"
+          >{{ c.name }}</view>
+        </view>
+      </view>
+
+      <view v-if="items.length" class="section">
         <view class="section-head">
           <text class="section-label">识别到 {{ selectedCount }} 个任务</text>
           <text class="relink" @click="items = []">清空</text>
@@ -86,12 +105,15 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { addTask, addPlan, requestTab } from '@/store/tasks'
 import { chooseDocument, extractText, parseTextToItems, SUPPORTED_LABEL } from '@/utils/doc'
 import { dueMeta } from '@/utils/date'
+import { categoryState, hexToRgba } from '@/store/categories'
 
 const text = ref('')
 const items = ref([])
 const fileName = ref('')
 const busy = ref(false)
 const dragging = ref(false)
+const importCategory = ref('')
+const categories = computed(() => categoryState.list)
 let dragTimer = null
 
 const supported = SUPPORTED_LABEL
@@ -165,6 +187,13 @@ function dueTone(item) {
   return dueMeta(item.dueAt, item.dueAllDay).tone
 }
 
+function catChipStyle(c) {
+  if (importCategory.value === c.id) {
+    return { background: c.color, borderColor: c.color, color: '#ffffff' }
+  }
+  return { color: c.color, borderColor: hexToRgba(c.color, 0.35) }
+}
+
 function clearAll() {
   text.value = ''
   items.value = []
@@ -172,7 +201,9 @@ function clearAll() {
 }
 
 function addAll() {
-  const selected = items.value.filter(i => i.selected && i.title.trim())
+  const selected = items.value
+    .filter(i => i.selected && i.title.trim())
+    .map(i => ({ ...i, categoryId: i.categoryId || importCategory.value || null }))
   if (!selected.length) {
     tip('至少选择一个任务')
     return
@@ -180,8 +211,9 @@ function addAll() {
   const base = fileName.value
     ? fileName.value.replace(/\.[^.]+$/, '')
     : '粘贴导入'
-  if (selected.length === 1) {
-    addTask({ ...selected[0], source: 'doc' })
+  const cats = new Set(selected.map(i => i.categoryId || ''))
+  if (selected.length === 1 || cats.size > 1) {
+    selected.forEach(item => addTask({ ...item, source: 'doc' }))
   } else {
     addPlan(`导入 · ${base}`.slice(0, 40), selected, 'doc')
   }
@@ -418,6 +450,31 @@ onUnmounted(() => {
   font-size: 27rpx;
   font-weight: 600;
   color: #3c3557;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 18rpx;
+}
+
+.chip {
+  height: 56rpx;
+  line-height: 56rpx;
+  padding: 0 24rpx;
+  margin: 0 14rpx 14rpx 0;
+  border-radius: 28rpx;
+  border: 1rpx solid #e4dff2;
+  background: #ffffff;
+  font-size: 24rpx;
+  color: #8e87a6;
+
+  &.active {
+    background: #7c6cf0;
+    border-color: #7c6cf0;
+    color: #ffffff;
+    font-weight: 600;
+  }
 }
 
 .relink {

@@ -32,6 +32,29 @@
       </view>
     </view>
 
+    <scroll-view class="cat-bar" scroll-x :show-scrollbar="false">
+      <view class="cat-row">
+        <view
+          class="cat-chip"
+          :class="{ active: activeCategory === '' }"
+          @click="activeCategory = ''"
+        >全部</view>
+        <view
+          v-for="c in categories"
+          :key="c.id"
+          class="cat-chip"
+          :class="{ active: activeCategory === c.id }"
+          :style="chipStyle(c)"
+          @click="activeCategory = c.id"
+        >
+          <view class="cat-dot" :style="{ background: activeCategory === c.id ? '#ffffff' : c.color }"></view>
+          <text>{{ c.name }}</text>
+          <text v-if="countOf(c.id)" class="cat-count">{{ countOf(c.id) }}</text>
+        </view>
+        <view class="cat-chip cat-manage" @click="goCategories">管理</view>
+      </view>
+    </scroll-view>
+
     <view class="tabs">
       <view
         v-for="tab in tabs"
@@ -76,11 +99,16 @@ import {
   hasDeadline,
   sortByDue,
   stats,
-  consumeTab
+  consumeTab,
+  countByCategory
 } from '@/store/tasks'
+import { categoryState, hexToRgba } from '@/store/categories'
 import { greeting, formatFullDate } from '@/utils/date'
 
 const activeTab = ref('today')
+const activeCategory = ref('')
+
+const categories = computed(() => categoryState.list)
 
 const stat = computed(() => stats())
 const greet = computed(() => greeting())
@@ -112,11 +140,22 @@ const emptyMap = {
   }
 }
 
-const emptyTitle = computed(() => emptyMap[activeTab.value].title)
-const emptySub = computed(() => emptyMap[activeTab.value].sub)
+const emptyTitle = computed(() => {
+  if (activeCategory.value && !tasks.value.length) return '这个分类下还没有任务'
+  return emptyMap[activeTab.value].title
+})
+const emptySub = computed(() => {
+  if (activeCategory.value && !tasks.value.length) {
+    return '说一句「二宝的手工作业月底交」，会自动归到这里'
+  }
+  return emptyMap[activeTab.value].sub
+})
 
 const tasks = computed(() => {
-  const tops = topTasks()
+  let tops = topTasks()
+  if (activeCategory.value) {
+    tops = tops.filter(t => t.categoryId === activeCategory.value)
+  }
   if (activeTab.value === 'today') {
     return sortByDue(tops.filter(t => isToday(t)))
   }
@@ -130,6 +169,21 @@ const tasks = computed(() => {
     .filter(t => t.done)
     .sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))
 })
+
+function countOf(id) {
+  return countByCategory(id)
+}
+
+function chipStyle(c) {
+  if (activeCategory.value === c.id) {
+    return { background: c.color, borderColor: c.color, color: '#ffffff' }
+  }
+  return { color: c.color, borderColor: hexToRgba(c.color, 0.35) }
+}
+
+function goCategories() {
+  uni.navigateTo({ url: '/pages/categories/categories' })
+}
 
 function goAdd() {
   uni.navigateTo({ url: '/pages/add/add' })
@@ -282,6 +336,57 @@ onShow(() => {
   font-size: 22rpx;
   color: rgba(255, 255, 255, 0.88);
   margin-top: 14rpx;
+}
+
+.cat-bar {
+  width: 100%;
+  white-space: nowrap;
+  padding: 22rpx 0 2rpx;
+}
+
+.cat-row {
+  display: flex;
+  align-items: center;
+  padding: 0 34rpx;
+}
+
+.cat-chip {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 52rpx;
+  padding: 0 22rpx;
+  margin-right: 14rpx;
+  border-radius: 26rpx;
+  border: 1rpx solid #e4dff2;
+  background: #ffffff;
+  font-size: 24rpx;
+  color: #8e87a6;
+
+  &.active {
+    background: #7c6cf0;
+    border-color: #7c6cf0;
+    color: #ffffff;
+    font-weight: 600;
+  }
+}
+
+.cat-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  margin-right: 10rpx;
+}
+
+.cat-count {
+  font-size: 20rpx;
+  margin-left: 8rpx;
+  opacity: 0.85;
+}
+
+.cat-manage {
+  color: #b0aac2;
+  border-style: dashed;
 }
 
 .tabs {

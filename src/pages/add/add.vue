@@ -86,6 +86,29 @@
         </view>
       </view>
 
+      <view v-if="!hasPreview" class="section">
+        <text class="section-label">归到</text>
+        <view class="chips">
+          <view
+            class="chip"
+            :class="{ active: defaultCategory === '' }"
+            @click="defaultCategory = ''"
+          >
+            不归类
+          </view>
+          <view
+            v-for="c in categories"
+            :key="c.id"
+            class="chip"
+            :class="{ active: defaultCategory === c.id }"
+            :style="catChipStyle(c)"
+            @click="defaultCategory = c.id"
+          >
+            {{ c.name }}
+          </view>
+        </view>
+      </view>
+
       <view v-if="hasPreview" class="section">
         <view class="section-head">
           <text class="section-label">拆成 {{ validCount }} 个小任务</text>
@@ -98,6 +121,11 @@
             <view class="preview-main">
               <input v-model="item.title" class="preview-input" :maxlength="100" />
               <view class="preview-meta">
+                <text
+                  class="mini-chip mini-cat"
+                  :style="itemCatStyle(item)"
+                  @click.stop="pickItemCategory(idx)"
+                >{{ itemCategoryName(item) }}</text>
                 <picker mode="date" :value="itemDateValue(item)" @change="e => onItemDateChange(idx, e)">
                   <view class="mini-chip" :class="{ active: item.dueAt }">
                     {{ itemDueLabel(item) }}
@@ -136,6 +164,7 @@ import { addTask, addPlan, requestTab } from '@/store/tasks'
 import { decompose } from '@/utils/decompose'
 import { dueMeta, endOfDay, addDays, isSameDay, shortDate } from '@/utils/date'
 import { startVoice, stopVoice, voiceSupported } from '@/utils/voice'
+import { categoryState, hexToRgba, categoryName } from '@/store/categories'
 
 const rawText = ref('')
 const manualDue = ref(null)
@@ -146,6 +175,9 @@ const recording = ref(false)
 const voiceText = ref('')
 const seconds = ref(0)
 const usedVoice = ref(false)
+const defaultCategory = ref('')
+
+const categories = computed(() => categoryState.list)
 
 let timer = null
 
@@ -231,7 +263,8 @@ function onSmartSplit() {
       dueAt: ownDue ? item.dueAt : manualDue.value,
       dueAllDay: ownDue ? item.dueAllDay : manualAllDay.value,
       priority:
-        item.priority === 1 && priority.value !== 1 ? priority.value : item.priority
+        item.priority === 1 && priority.value !== 1 ? priority.value : item.priority,
+      categoryId: item.categoryId || defaultCategory.value || null
     }
   })
   if (!items.length) {
@@ -271,6 +304,39 @@ function priorityLabel(value) {
   if (value === 2) return '重要'
   if (value === 0) return '不急'
   return '普通'
+}
+
+function catChipStyle(c) {
+  if (defaultCategory.value === c.id) {
+    return { background: c.color, borderColor: c.color, color: '#ffffff' }
+  }
+  return { color: c.color, borderColor: hexToRgba(c.color, 0.35) }
+}
+
+function itemCategoryName(item) {
+  if (!item.categoryId) return '未归类'
+  return categoryName(item.categoryId) || '未归类'
+}
+
+function itemCatStyle(item) {
+  const hit = item.categoryId
+    ? categoryState.list.find(c => c.id === item.categoryId)
+    : null
+  if (!hit) return { color: '#8e87a6', background: 'rgba(176, 170, 194, 0.14)' }
+  return { color: hit.color, background: hexToRgba(hit.color, 0.14) }
+}
+
+function pickItemCategory(idx) {
+  const item = preview.value[idx]
+  if (!item) return
+  const names = categoryState.list.map(c => c.name)
+  uni.showActionSheet({
+    itemList: ['不归类', ...names],
+    success: res => {
+      item.categoryId =
+        res.tapIndex === 0 ? null : categoryState.list[res.tapIndex - 1].id
+    }
+  })
 }
 
 function toggleRecord() {
@@ -374,8 +440,9 @@ function onCreate() {
       return
     }
     const source = usedVoice.value ? 'voice' : 'manual'
-    if (items.length === 1) {
-      addTask({ ...items[0], source })
+    const cats = new Set(items.map(i => i.categoryId || ''))
+    if (items.length === 1 || cats.size > 1) {
+      items.forEach(item => addTask({ ...item, source }))
     } else {
       const groupTitle = rawText.value.trim() || '新任务'
       addPlan(groupTitle.slice(0, 40), items, source)
@@ -391,6 +458,7 @@ function onCreate() {
       dueAt: manualDue.value,
       dueAllDay: manualAllDay.value,
       priority: priority.value,
+      categoryId: defaultCategory.value || null,
       source: usedVoice.value ? 'voice' : 'manual'
     })
   }
@@ -736,6 +804,10 @@ onUnmounted(() => {
     color: #7c6cf0;
     background: #f1edff;
   }
+}
+
+.mini-cat {
+  font-weight: 600;
 }
 
 .mini-tag {

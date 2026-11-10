@@ -1,4 +1,5 @@
 import { startOfDay, endOfDay, addDays } from './date'
+import { matchCategory } from '@/store/categories'
 
 const PERIOD_HOUR = {
   凌晨: 6,
@@ -63,6 +64,23 @@ export function parseTimeHint(text, now = Date.now(), inheritedDate = null) {
       dateTs = startOfDay(addDays(now, delta))
       hasDate = true
       rest = rest.replace(wd[0], ' ')
+    }
+  }
+
+  if (!hasDate) {
+    const edge = /(下个?月|这个?月|本?月)(底|末|初)/.exec(rest)
+    if (edge) {
+      const d = new Date(now)
+      const isNext = edge[1].indexOf('下') === 0
+      if (isNext) d.setMonth(d.getMonth() + 1, 1)
+      if (edge[2] === '初') {
+        d.setDate(1)
+      } else {
+        d.setMonth(d.getMonth() + 1, 0)
+      }
+      dateTs = startOfDay(d.getTime())
+      hasDate = true
+      rest = rest.replace(edge[0], ' ')
     }
   }
 
@@ -155,29 +173,36 @@ export function decompose(text, now = Date.now()) {
   const phrases = splitPhrases(text)
   const items = []
   let lastDate = null
+  let lastCategory = null
 
   phrases.slice(0, 20).forEach(phrase => {
-    const parsed = parseTimeHint(phrase, now, lastDate)
+    const cat = matchCategory(phrase)
+    const parsed = parseTimeHint(cat ? cat.text : phrase, now, lastDate)
     if (parsed.hasDate) lastDate = parsed.dayStart
+    const categoryId = cat ? cat.categoryId : lastCategory
+    if (cat) lastCategory = cat.categoryId
     const title = cleanTitle(parsed.rest)
     if (!title) return
     const item = {
       title: title.slice(0, 100),
       dueAt: parsed.dueAt,
       dueAllDay: parsed.dueAllDay,
-      priority: detectPriority(phrase)
+      priority: detectPriority(phrase),
+      categoryId
     }
     if (!items.some(i => i.title === item.title)) items.push(item)
   })
 
   if (!items.length) {
-    const title = cleanTitle(text)
+    const cat = matchCategory(text)
+    const title = cleanTitle(cat ? cat.text : text)
     if (title) {
       items.push({
         title: title.slice(0, 100),
         dueAt: null,
         dueAllDay: false,
-        priority: detectPriority(text)
+        priority: detectPriority(text),
+        categoryId: cat ? cat.categoryId : null
       })
     }
   }

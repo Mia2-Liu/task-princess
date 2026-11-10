@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { endOfDay, isSameDay } from '@/utils/date'
+import { markDirty } from './dirty'
 
 const STORAGE_KEY = 'tp_tasks_v1'
 
@@ -40,6 +41,23 @@ export function saveTasks() {
   } catch (e) {
     // 本地存储失败时保持内存态可用
   }
+  markDirty()
+}
+
+export function applyRemoteTasks(list) {
+  state.tasks = Array.isArray(list) ? list : []
+}
+
+export function clearCategoryFromTasks(categoryId) {
+  if (!categoryId) return
+  state.tasks.forEach(task => {
+    if (task.categoryId === categoryId) task.categoryId = null
+  })
+  saveTasks()
+}
+
+export function countByCategory(categoryId) {
+  return topTasks().filter(t => !t.done && t.categoryId === categoryId).length
 }
 
 export function getTask(id) {
@@ -66,6 +84,7 @@ export function addTask(data, parentId = null) {
     dueAllDay: !!data.dueAllDay,
     priority: typeof data.priority === 'number' ? data.priority : 1,
     parentId,
+    categoryId: data.categoryId || null,
     source: data.source || 'manual'
   }
   state.tasks.push(task)
@@ -82,6 +101,9 @@ export function addPlan(title, items, source = 'voice') {
   }
 
   const dues = valid.map(i => i.dueAt).filter(Boolean)
+  const sharedCategory = valid.every(i => i.categoryId === valid[0].categoryId)
+    ? valid[0].categoryId || null
+    : null
   const parent = {
     id: genId(),
     title: String(title || '新任务组').trim().slice(0, 100),
@@ -95,6 +117,7 @@ export function addPlan(title, items, source = 'voice') {
       : false,
     priority: Math.max(...valid.map(i => (typeof i.priority === 'number' ? i.priority : 1))),
     parentId: null,
+    categoryId: sharedCategory,
     source
   }
   state.tasks.push(parent)
@@ -110,6 +133,7 @@ export function addPlan(title, items, source = 'voice') {
       dueAllDay: !!item.dueAllDay,
       priority: typeof item.priority === 'number' ? item.priority : 1,
       parentId: parent.id,
+      categoryId: item.categoryId || null,
       source
     })
   })

@@ -11,6 +11,11 @@
           <text v-if="priorityTag" class="p-tag" :class="'p' + priority">{{ priorityTag }}</text>
         </view>
         <view class="meta-row">
+          <text
+            v-if="category"
+            class="cat-tag"
+            :style="{ background: tint, color: category.color }"
+          >{{ category.name }}</text>
           <text v-if="due.label !== '无截止'" class="due" :class="due.tone">{{ due.label }}</text>
           <text v-if="isGroup" class="meta-text">{{ doneCount }}/{{ children.length }} 子任务</text>
           <text v-if="sourceTag" class="meta-text">{{ sourceTag }}</text>
@@ -29,6 +34,9 @@
         </view>
         <text class="sub-title" :class="{ 'line-through': child.done }" @click.stop="toggleTask(child.id)">
           {{ child.title }}
+        </text>
+        <text v-if="childCat(child)" class="sub-cat" :style="childCatStyle(child)">
+          {{ childCat(child).name }}
         </text>
         <text v-if="child.dueAt" class="sub-due" :class="childDue(child).tone">
           {{ childDue(child).label }}
@@ -49,6 +57,7 @@ import {
   dueAllDayOf
 } from '@/store/tasks'
 import { dueMeta } from '@/utils/date'
+import { getCategory, hexToRgba } from '@/store/categories'
 
 const props = defineProps({
   task: {
@@ -63,6 +72,8 @@ const isGroup = computed(() => children.value.length > 0)
 const doneCount = computed(() => children.value.filter(c => c.done).length)
 
 const due = computed(() => dueMeta(effectiveDue(props.task), dueAllDayOf(props.task)))
+const category = computed(() => getCategory(props.task.categoryId))
+const tint = computed(() => hexToRgba(category.value ? category.value.color : '', 0.14))
 const priority = computed(() => effectivePriority(props.task))
 const priorityTag = computed(() =>
   priority.value === 2 ? '重要' : priority.value === 0 ? '不急' : ''
@@ -82,6 +93,16 @@ function onBodyTap() {
 
 function childDue(child) {
   return dueMeta(child.dueAt, child.dueAllDay)
+}
+
+function childCat(child) {
+  return getCategory(child.categoryId)
+}
+
+function childCatStyle(child) {
+  const hit = childCat(child)
+  if (!hit) return {}
+  return { color: hit.color, background: hexToRgba(hit.color, 0.14) }
 }
 
 function onDelete(task) {
@@ -203,6 +224,15 @@ function onDelete(task) {
   margin-top: 8rpx;
 }
 
+.cat-tag {
+  font-size: 20rpx;
+  padding: 2rpx 12rpx;
+  border-radius: 8rpx;
+  margin-right: 14rpx;
+  line-height: 1.7;
+  font-weight: 600;
+}
+
 .due {
   font-size: 22rpx;
   margin-right: 14rpx;
@@ -270,6 +300,15 @@ function onDelete(task) {
   margin-left: 16rpx;
   line-height: 1.4;
   word-break: break-all;
+}
+
+.sub-cat {
+  font-size: 19rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  margin-left: 12rpx;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .sub-due {
