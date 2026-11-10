@@ -100,7 +100,8 @@ import {
   sortByDue,
   stats,
   consumeTab,
-  countByCategory
+  countByCategory,
+  STATUS
 } from '@/store/tasks'
 import { categoryState, hexToRgba } from '@/store/categories'
 import { greeting, formatFullDate } from '@/utils/date'
@@ -160,13 +161,13 @@ const tasks = computed(() => {
     return sortByDue(tops.filter(t => isToday(t)))
   }
   if (activeTab.value === 'deadline') {
-    return sortByDue(tops.filter(t => !t.done && hasDeadline(t)))
+    return sortByDue(tops.filter(t => t.status !== STATUS.DONE && hasDeadline(t)))
   }
   if (activeTab.value === 'all') {
-    return sortByDue(tops.filter(t => !t.done))
+    return sortByDue(tops.filter(t => t.status !== STATUS.DONE))
   }
   return tops
-    .filter(t => t.done)
+    .filter(t => t.status === STATUS.DONE)
     .sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0))
 })
 

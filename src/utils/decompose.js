@@ -155,18 +155,87 @@ export function parseTimeHint(text, now = Date.now(), inheritedDate = null) {
   }
 }
 
+// ========== 拆分规则 v2 ==========
+// 按优先级依次尝试：编号列表 → 连接词/标点 → 时间锚点 → 兜底
+// 详细规则见项目根目录 SPLIT_RULES.md
+
+const CONNECTOR_RE = /(然后|接着|最后|并且|同时|顺便|还有|以及|另外|再)/g
+const STRONG_PUNCT_RE = /[。；;！!？?]/g  // 强标点：拆
+const SOFT_PUNCT_RE = /[，,]/g           // 软标点：不拆，除非后面跟时间锚点
+
+// 时间锚点正则：判断一段开头是不是时间表达（逗号后如果是时间，应该独立成一条）
+const TIME_ANCHOR_RE = /^(?:(?:大后天|后天|明天|明早|明晚|今天|今晚|今早)|(?:下|上)?(?:周|星期|礼拜)[一二三四五六日天]|(?:\d{4}年)?\d{1,2}月\d{1,2}[日号]?|[下下?]?[个]?(?:月)(?:底|末|初)|(?:下午|上午|晚上|早上|中午|凌晨)\d{1,2}[点时](?:半|\d{1,2}分?)?|\d{1,2}:\d{2}|\d{1,2}[点时](?:半|\d{1,2}分?)?)/
+
+// 编号识别
+const NUMBERED_ITEM_RE = /^(?:\d{1,2}[.、)）]|(?:[一二三四五六七八九十]+)[、.]|[-*•·●○◆◇])\s*/
+
 export function splitPhrases(text) {
-  let t = String(text || '').replace(/\r/g, '\n')
-  t = t.replace(/(^|\n)\s*(?:\d{1,2}[.、)）]|[-*•·])\s*/g, '$1，')
-  t = t.replace(/(^|[\s，,；;])\d{1,2}[.、)）]\s+/g, '$1，')
-  t = t.replace(/(\d{1,2})、\s*/g, '，')
-  t = t.replace(/[；;。!！?？]/g, '，')
-  t = t.replace(/\n+/g, '，')
-  t = t.replace(/(?:然后|接着|最后|并且|同时|顺便|还有|以及|另外)/g, '，')
-  return t
-    .split(/[，,]/)
-    .map(s => s.trim())
-    .filter(Boolean)
+  let t = String(text || '').replace(/\r/g, '\n').trim()
+  if (!t) return []
+
+  // --- 规则 2：编号列表 ---
+  // 先把带编号的行变成一行一项
+  const numberedLines = []
+  const lines = t.split('\n')
+  for (let line of lines) {
+    line = line.trim()
+    if (!line) continue
+    // 如果行开头是编号
+    const numMatch = NUMBERED_ITEM_RE.exec(line)
+    if (numMatch) {
+      numberedLines.push(line.slice(numMatch[0].length).trim())
+    } else {
+      // 没编号的行，如果上一个也是没编号的（编号项结束了），作为新项；
+      // 如果上一个是编号项，合并到上一行末尾（同一条的续行）
+      numberedLines.push(line)
+    }
+  }
+
+  // --- 规则 3：连接词 + 标点 ---
+  // 把连接词和强标点都换成统一分隔符 \n，软标点保留
+  let joined = numberedLines.join('\n')
+  joined = joined.replace(STRONG_PUNCT_RE, '\n')
+  joined = joined.replace(CONNECTOR_RE, '\n')
+  joined = joined.replace(/\n+/g, '\n')
+
+  let rawPieces = joined.split('\n').map(s => s.trim()).filter(s => s.length >= 2)
+
+  // --- 规则 4：时间锚点独立 ---
+  // 某段里如果有多个独立时间表达，按时间位置拆分
+  // 但这一步在 decompose() 里 parseTimeHint 已经逐段处理了，
+  // 这里只做初步。更重要的是：
+  // 如果一条里逗号很多且每个逗号后都跟着时间锚点，那每个逗号后单独拆
+  const finalPieces = []
+  for (let piece of rawPieces) {
+    // 检查是否"逗号 + 时间锚点"模式
+    if (/[,，]/.test(piece) && piece.split(/[,，]/).every(seg => seg.trim().length >= 4)) {
+      const parts = piece.split(/[,，]/).map(s => s.trim()).filter(s => s.length >= 4)
+      // 每个 part 里如果自己还带连接词，再拆
+      for (let p of parts) {
+        let further = p.replace(CONNECTOR_RE, '\n').split('\n').map(s => s.trim()).filter(Boolean)
+        for (let f of further) finalPieces.push(f)
+      }
+    } else {
+      finalPieces.push(piece)
+    }
+  }
+
+  // --- 合并短片段（避免噪声）---
+  const merged = []
+  for (let p of finalPieces) {
+    if (p.length < 4 && merged.length > 0) {
+      merged[merged.length - 1] = merged[merged.length - 1] + '，' + p
+    } else {
+      merged.push(p)
+    }
+  }
+
+  // --- 规则 5：兜底 ---
+  if (!merged.length) {
+    return [t]
+  }
+
+  return merged
 }
 
 export function decompose(text, now = Date.now()) {

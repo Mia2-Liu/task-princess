@@ -4,6 +4,20 @@ import { markDirty } from './dirty'
 
 const STORAGE_KEY = 'tp_tasks_v1'
 
+export const STATUS = {
+  PENDING: 'pending',   // 未开始（默认）
+  ACTIVE: 'active',     // 进行中
+  PAUSED: 'paused',     // 暂停
+  DONE: 'done'          // 已完成
+}
+
+export const STATUS_LABEL = {
+  pending: '未开始',
+  active: '进行中',
+  paused: '暂停',
+  done: '已完成'
+}
+
 export const state = reactive({
   tasks: []
 })
@@ -57,7 +71,7 @@ export function clearCategoryFromTasks(categoryId) {
 }
 
 export function countByCategory(categoryId) {
-  return topTasks().filter(t => !t.done && t.categoryId === categoryId).length
+  return topTasks().filter(t => t.status !== STATUS.DONE && t.categoryId === categoryId).length
 }
 
 export function getTask(id) {
@@ -77,8 +91,8 @@ export function addTask(data, parentId = null) {
     id: genId(),
     title: String(data.title || '').trim(),
     note: data.note || '',
-    done: false,
-    doneAt: null,
+    status: data.status || STATUS.PENDING,
+    doneAt: data.status === STATUS.DONE ? Date.now() : null,
     createdAt: Date.now(),
     dueAt: data.dueAt || null,
     dueAllDay: !!data.dueAllDay,
@@ -108,7 +122,7 @@ export function addPlan(title, items, source = 'voice') {
     id: genId(),
     title: String(title || '新任务组').trim().slice(0, 100),
     note: '',
-    done: false,
+    status: STATUS.PENDING,
     doneAt: null,
     createdAt: Date.now(),
     dueAt: dues.length ? Math.min(...dues) : null,
@@ -126,7 +140,7 @@ export function addPlan(title, items, source = 'voice') {
       id: genId(),
       title: String(item.title).trim().slice(0, 100),
       note: '',
-      done: false,
+      status: STATUS.PENDING,
       doneAt: null,
       createdAt: Date.now(),
       dueAt: item.dueAt || null,
@@ -147,26 +161,35 @@ function syncParent(parentId) {
   if (!parent) return
   const kids = childrenOf(parentId)
   if (!kids.length) return
-  const allDone = kids.every(k => k.done)
-  parent.done = allDone
+  const allDone = kids.every(k => k.status === STATUS.DONE)
+  parent.status = allDone ? STATUS.DONE : STATUS.ACTIVE
   parent.doneAt = allDone ? parent.doneAt || Date.now() : null
 }
 
-export function toggleTask(id) {
+export function setTaskStatus(id, newStatus) {
   const task = getTask(id)
   if (!task) return
-  const next = !task.done
+  if (!Object.values(STATUS).includes(newStatus)) return
+  task.status = newStatus
+  task.doneAt = newStatus === STATUS.DONE ? Date.now() : null
+  // 有子任务时联动
   const kids = childrenOf(id)
   if (kids.length) {
     kids.forEach(kid => {
-      kid.done = next
-      kid.doneAt = next ? Date.now() : null
+      kid.status = newStatus
+      kid.doneAt = newStatus === STATUS.DONE ? Date.now() : null
     })
   }
-  task.done = next
-  task.doneAt = next ? Date.now() : null
   syncParent(task.parentId)
   saveTasks()
+}
+
+export function toggleTask(id) {
+  // 兼容旧调用：pending/active/paused → done, done → pending
+  const task = getTask(id)
+  if (!task) return
+  const next = task.status === STATUS.DONE ? STATUS.PENDING : STATUS.DONE
+  setTaskStatus(id, next)
 }
 
 export function removeTask(id) {
@@ -178,7 +201,7 @@ export function removeTask(id) {
     const parent = getTask(task.parentId)
     const siblings = childrenOf(task.parentId)
     if (parent && !siblings.length) {
-      parent.done = false
+      parent.status = STATUS.PENDING
       parent.doneAt = null
     } else {
       syncParent(task.parentId)
@@ -193,12 +216,12 @@ export function membersOf(task) {
 }
 
 export function pendingMembersOf(task) {
-  return membersOf(task).filter(t => !t.done)
+  return membersOf(task).filter(t => t.status !== STATUS.DONE)
 }
 
 export function effectiveDue(task) {
   const members = membersOf(task)
-  const pending = members.filter(t => !t.done)
+  const pending = members.filter(t => t.status !== STATUS.DONE)
   const list = pending.length ? pending : members
   const dues = list.map(t => t.dueAt).filter(Boolean)
   return dues.length ? Math.min(...dues) : null
@@ -206,14 +229,14 @@ export function effectiveDue(task) {
 
 export function effectivePriority(task) {
   const members = membersOf(task)
-  const pending = members.filter(t => !t.done)
+  const pending = members.filter(t => t.status !== STATUS.DONE)
   const list = pending.length ? pending : members
   return Math.max(...list.map(t => (typeof t.priority === 'number' ? t.priority : 1)))
 }
 
 export function dueAllDayOf(task) {
   const members = membersOf(task)
-  const pending = members.filter(t => !t.done)
+  const pending = members.filter(t => t.status !== STATUS.DONE)
   const list = pending.length ? pending : members
   const due = effectiveDue(task)
   const hit = list.find(t => t.dueAt === due)
@@ -232,7 +255,15 @@ export function hasDeadline(task) {
 }
 
 export function isCompleted(task) {
-  return task.done
+  return task.status === STATUS.DONE
+}
+
+export function filterByStatus(list, status) {
+  if (!status || status === 'all') return list
+  if (status === 'active') return list.filter(t => t.status === STATUS.ACTIVE || t.status === STATUS.PENDING)
+  if (status === 'paused') return list.filter(t => t.status === STATUS.PAUSED)
+  if (status === 'done') return list.filter(t => t.status === STATUS.DONE)
+  return list
 }
 
 export function sortByDue(list) {
@@ -252,14 +283,33 @@ export function sortByDue(list) {
 export function stats(now = Date.now()) {
   const tops = topTasks()
   const pendingToday = tops.filter(t => isToday(t, now))
-  const doneToday = tops.filter(t => t.done && t.doneAt && isSameDay(t.doneAt, now))
+  const doneToday = tops.filter(t => t.status === STATUS.DONE && t.doneAt && isSameDay(t.doneAt, now))
   const total = pendingToday.length + doneToday.length
   return {
     todayPending: pendingToday.length,
     doneToday: doneToday.length,
     percent: total ? Math.round((doneToday.length / total) * 100) : 0,
-    deadlineCount: tops.filter(t => !t.done && hasDeadline(t)).length,
-    allCount: tops.filter(t => !t.done).length,
-    doneCount: tops.filter(t => t.done).length
+    deadlineCount: tops.filter(t => t.status !== STATUS.DONE && hasDeadline(t)).length,
+    allCount: tops.filter(t => t.status !== STATUS.DONE).length,
+    doneCount: tops.filter(t => t.status === STATUS.DONE).length,
+    activeCount: tops.filter(t => t.status === STATUS.ACTIVE).length,
+    pausedCount: tops.filter(t => t.status === STATUS.PAUSED).length
   }
+}
+
+// 旧数据迁移：把 task.done 转成 task.status
+export function migrateDoneToStatus() {
+  let changed = false
+  state.tasks.forEach(t => {
+    if (typeof t.status === 'string' && Object.values(STATUS).includes(t.status)) return
+    if (t.done === true) {
+      t.status = STATUS.DONE
+      changed = true
+    } else {
+      t.status = STATUS.PENDING
+      changed = true
+    }
+    delete t.done
+  })
+  if (changed) saveTasks()
 }
