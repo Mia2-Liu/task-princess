@@ -28,12 +28,6 @@
       "scope.record": {
         "desc": "用于语音输入，把你的想法变成任务"
       }
-    },
-    "plugins": {
-      "WechatSI": {
-        "version": "0.3.5",
-        "provider": "wx069ba97219f66d99"
-      }
     }
   }
 }

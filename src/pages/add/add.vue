@@ -29,7 +29,7 @@
           <text class="live-text">{{ voiceText || '正在聆听…' }}</text>
         </view>
 
-        <view class="input-foot">
+        <view v-if="showVoice" class="input-foot">
           <view class="mic" :class="{ recording }" @click="toggleRecord">
             <view class="mic-icon">
               <view class="mic-body"></view>
@@ -42,6 +42,11 @@
             <text class="foot-sub">
               {{ recording ? `已录制 ${seconds} 秒` : voiceHint }}
             </text>
+          </view>
+        </view>
+        <view v-else class="input-foot input-foot--muted">
+          <view class="muted-tag">
+            <text class="muted-text">微信小程序暂不支持语音输入，可手动打字</text>
           </view>
         </view>
       </view>
@@ -146,9 +151,15 @@ let timer = null
 
 const hasPreview = computed(() => preview.value.length > 0)
 const validCount = computed(() => preview.value.filter(i => i.title.trim()).length)
-const voiceHint = computed(() =>
-  voiceSupported() ? '语音由微信同声传译提供' : '当前环境不支持语音，可手动输入'
-)
+const showVoice = computed(() => voiceSupported())
+const voiceHint = computed(() => {
+  // #ifdef H5
+  return '语音由浏览器 Web Speech 提供'
+  // #endif
+  // #ifndef H5
+  return '请手动输入'
+  // #endif
+})
 
 const dateOptions = [
   { key: 'none', label: '不设置' },
@@ -569,6 +580,22 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   margin-left: 22rpx;
+}
+
+.input-foot--muted {
+  padding-top: 20rpx;
+}
+
+.muted-tag {
+  padding: 12rpx 22rpx;
+  border-radius: 16rpx;
+  background: #f8f6fd;
+  border: 1rpx dashed #e4def5;
+}
+
+.muted-text {
+  font-size: 22rpx;
+  color: #a29bb7;
 }
 
 .foot-title {

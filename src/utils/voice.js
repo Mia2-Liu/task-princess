@@ -1,3 +1,9 @@
+// 语音输入适配层
+// - H5: 浏览器原生 SpeechRecognition (Chrome/Edge/Safari 14.1+)
+// - 微信小程序: 微信同声传译插件已于 2026 年下架停用，小程序端暂时没有内置
+//   语音转写能力，voiceSupported() 统一返回 false。后续如果接入微信云开发
+//   + 腾讯云 ASR / 百度语音识别等，可以在 mp-weixin 分支里重新实现。
+
 const ERROR_TEXT = {
   'not-allowed': '麦克风权限被拒绝',
   'service-not-allowed': '浏览器未授权语音服务',
@@ -7,7 +13,6 @@ const ERROR_TEXT = {
 }
 
 let recognition = null
-let recorder = null
 
 export function voiceSupported() {
   // #ifdef H5
@@ -16,7 +21,9 @@ export function voiceSupported() {
   // #endif
 
   // #ifdef MP-WEIXIN
-  return typeof requirePlugin === 'function'
+  // 微信同声传译插件已下架停用（2026-03-13 微信开放社区公告），
+  // 新注册的小程序无法添加。暂时没有内置语音转写方案。
+  return false
   // #endif
 
   // #ifndef H5 || MP-WEIXIN
@@ -63,29 +70,9 @@ export function startVoice({ onText, onError, onEnd }) {
   // #endif
 
   // #ifdef MP-WEIXIN
-  try {
-    const plugin = requirePlugin('WechatSI')
-    recorder = plugin.getRecordRecognitionManager()
-    recorder.onRecognize = res => {
-      if (res && res.result) onText && onText(res.result, false)
-    }
-    recorder.onStop = res => {
-      if (res && res.result) onText && onText(res.result, true)
-      recorder = null
-      onEnd && onEnd()
-    }
-    recorder.onError = err => {
-      onError && onError(new Error((err && err.msg) || '语音识别失败'))
-      recorder = null
-      onEnd && onEnd()
-    }
-    recorder.start({ lang: 'zh_CN', duration: 60000 })
-    return true
-  } catch (e) {
-    onError &&
-      onError(new Error('语音插件不可用，请先在微信后台添加「微信同声传译」插件'))
-    return false
-  }
+  onError &&
+    onError(new Error('微信同声传译插件已下架，小程序端暂不支持语音输入，请手动打字'))
+  return false
   // #endif
 
   // #ifndef H5 || MP-WEIXIN
@@ -101,16 +88,6 @@ export function stopVoice() {
       recognition.stop()
     } catch (e) {
       recognition = null
-    }
-  }
-  // #endif
-
-  // #ifdef MP-WEIXIN
-  if (recorder) {
-    try {
-      recorder.stop()
-    } catch (e) {
-      recorder = null
     }
   }
   // #endif
