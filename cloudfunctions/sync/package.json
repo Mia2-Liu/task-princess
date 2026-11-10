@@ -1,7 +1,7 @@
 {
   "name": "sync",
   "version": "1.0.0",
-  "description": "任务小工具云同步云函数",
+  "description": "妈妈的小助手云同步云函数",
   "main": "index.js",
   "dependencies": {
     "wx-server-sdk": "~2.6.3"
