@@ -2,7 +2,7 @@
   "name": "task-princess",
   "version": "1.0.0",
   "private": true,
-  "description": "任务小公举 - 语音输入、智能拆解、文档导入的跨端任务管理小程序",
+  "description": "任务小工具 - 语音输入、智能拆解、文档导入的跨端任务管理小程序",
   "scripts": {
     "dev:h5": "uni",
     "dev:mp-weixin": "uni -p mp-weixin",

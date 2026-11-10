@@ -1,5 +1,5 @@
 {
-  "name": "任务小公举",
+  "name": "任务小工具",
   "appid": "__UNI__TASKPRINCESS",
   "description": "语音输入、智能拆解、文档导入的跨端任务管理小程序",
   "versionName": "1.0.0",
@@ -10,7 +10,7 @@
     "enable": false
   },
   "h5": {
-    "title": "任务小公举",
+    "title": "任务小工具",
     "router": {
       "mode": "hash"
     }

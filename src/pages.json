@@ -3,7 +3,7 @@
     {
       "path": "pages/index/index",
       "style": {
-        "navigationBarTitleText": "任务小公举",
+        "navigationBarTitleText": "任务小工具",
         "navigationBarBackgroundColor": "#F6F4FB",
         "navigationBarTextStyle": "black",
         "backgroundColor": "#F6F4FB"
@@ -30,7 +30,7 @@
   ],
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "任务小公举",
+    "navigationBarTitleText": "任务小工具",
     "navigationBarBackgroundColor": "#F6F4FB",
     "backgroundColor": "#F6F4FB"
   }

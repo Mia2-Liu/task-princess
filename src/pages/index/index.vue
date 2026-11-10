@@ -3,9 +3,9 @@
     <view class="hero">
       <view class="hero-head">
         <view class="hero-left">
-          <view class="badge">小</view>
+          <view class="badge">任</view>
           <view class="hero-copy">
-            <text class="greet">{{ greet }}，小公举</text>
+            <text class="greet">{{ greet }}</text>
             <text class="today">{{ todayText }}</text>
           </view>
         </view>
@@ -47,7 +47,7 @@
 
     <view class="list">
       <view v-if="!tasks.length" class="empty">
-        <view class="empty-orb">小</view>
+        <view class="empty-orb">任</view>
         <text class="empty-title">{{ emptyTitle }}</text>
         <text class="empty-sub">{{ emptySub }}</text>
         <view class="empty-btn" @click="goAdd">新建一个任务</view>

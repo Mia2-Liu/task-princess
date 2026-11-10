@@ -112,7 +112,7 @@
       </view>
 
       <view v-if="!hasPreview" class="tips">
-        <text class="tips-title">小公举的小提示</text>
+        <text class="tips-title">使用小提示</text>
         <text class="tips-text">
           用「，」或「然后」分隔，就能自动拆成多个小任务；说到「明天上午」「周五」会自动带上截止时间。
         </text>
