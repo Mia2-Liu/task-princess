@@ -4,3 +4,5 @@ unpackage/
 .DS_Store
 *.local
 npm-debug.log*
+test-core.js
+test-setup.mjs
