@@ -68,6 +68,7 @@ export async function callASR(file) {
     if (result.ok) return { ok: true, text: result.text || '' }
     return { ok: false, error: result.error || '识别失败' }
   } catch (e) {
-    return { ok: false, error: (e && e.errMsg) || (e && e.message) || String(e) }
+    const raw = (e && e.errMsg) || (e && e.message) || String(e)
+    return { ok: false, error: 'asr_recognize 调用失败：' + raw }
   }
 }

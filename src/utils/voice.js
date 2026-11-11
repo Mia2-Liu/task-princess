@@ -34,7 +34,8 @@ export function friendlyError(msg) {
   const text = String(msg || '')
   if (!text) return '语音识别失败'
   if (text.indexOf('-504000') >= 0 || text.indexOf('FUNCTION_NOT_FOUND') >= 0) {
-    return '云函数 asr_recognize 不存在或未部署成功。请在开发者工具里右键 cloudfunctions/asr_recognize → 创建并部署：云端安装依赖'
+    return '云函数不存在或未部署成功（错误：' + text + '）。' +
+      '到云开发控制台 → 云函数列表，确认 asr_recognize 和 sync 都显示「已部署」'
   }
   if (text.indexOf('-504002') >= 0) {
     return '云函数执行出错，请到云开发控制台 → 云函数 → asr_recognize → 日志 查看原因'
