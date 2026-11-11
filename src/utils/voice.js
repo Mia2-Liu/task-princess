@@ -20,12 +20,30 @@ const MP_ERROR_TEXT = {
 
 let recognition = null
 let mediaStream = null
+let h5StopRequested = false
 
 // 小程序端：RecorderManager 是全局单例，回调只能注册一次，
 // 否则每次录音都会叠加一个 onStop，导致重复识别。
 let mpRecorder = null
 let mpHandlers = null
 let mpRecording = false
+let mpStopRequested = false
+
+// 云函数调用常见错误码 → 人话
+export function friendlyError(msg) {
+  const text = String(msg || '')
+  if (!text) return '语音识别失败'
+  if (text.indexOf('-504000') >= 0 || text.indexOf('FUNCTION_NOT_FOUND') >= 0) {
+    return '云函数 asr_recognize 不存在或未部署成功。请在开发者工具里右键 cloudfunctions/asr_recognize → 创建并部署：云端安装依赖'
+  }
+  if (text.indexOf('-504002') >= 0) {
+    return '云函数执行出错，请到云开发控制台 → 云函数 → asr_recognize → 日志 查看原因'
+  }
+  if (text.indexOf('-501000') >= 0 || text.indexOf('-601001') >= 0) {
+    return '云开发环境不可用，请检查 src/config.js 里的 CLOUD_ENV 是否正确'
+  }
+  return text
+}
 
 function isHttpContext() {
   if (typeof window === 'undefined') return false
@@ -61,7 +79,7 @@ export function voiceSupported() {
 // ============================================================
 // startVoice — 开始语音输入
 // ============================================================
-export function startVoice({ onText, onError, onEnd }) {
+export function startVoice({ onText, onError, onEnd, onStatus }) {
   // #ifdef H5
   // --- H5：浏览器 Web Speech API ---
   if (isHttpContext()) {
@@ -77,8 +95,16 @@ export function startVoice({ onText, onError, onEnd }) {
     return false
   }
 
+  h5StopRequested = false
   navigator.mediaDevices.getUserMedia({ audio: true })
     .then(stream => {
+      if (h5StopRequested) {
+        // 权限还没弹完用户就松手了
+        h5StopRequested = false
+        try { stream.getTracks().forEach(t => t.stop()) } catch (e) {}
+        onEnd && onEnd()
+        return
+      }
       mediaStream = stream
       _startSR({ onText, onError, onEnd })
     })
@@ -118,7 +144,7 @@ export function startVoice({ onText, onError, onEnd }) {
     onError && onError(new Error('云开发未配置，请按弹窗提示完成 3 步'))
     return false
   }
-  _startMP({ onText, onError, onEnd })
+  _startMP({ onText, onError, onEnd, onStatus })
   return true
   // #endif
 
@@ -135,6 +161,8 @@ export function stopVoice() {
   // #ifdef H5
   if (recognition) {
     try { recognition.stop() } catch (e) { recognition = null }
+  } else if (!mediaStream) {
+    h5StopRequested = true
   }
   if (mediaStream) {
     try { mediaStream.getTracks().forEach(t => t.stop()) } catch (e) {}
@@ -145,6 +173,9 @@ export function stopVoice() {
   // #ifdef MP-WEIXIN
   if (mpRecording && mpRecorder) {
     try { mpRecorder.stop() } catch (e) {}
+  } else {
+    // 权限弹窗/启动还没走完就松手了，等真正开始时立刻停
+    mpStopRequested = true
   }
   // #endif
 }
@@ -202,13 +233,13 @@ function _startSR({ onText, onError, onEnd }) {
 // ============================================================
 // MP-WEIXIN 内部：录音 + 云函数识别
 // ============================================================
-function _startMP({ onText, onError, onEnd }) {
+function _startMP({ onText, onError, onEnd, onStatus }) {
   // #ifdef MP-WEIXIN
   const format = (TENCENT_ASR && TENCENT_ASR.recordFormat) || 'mp3'
   const rm = getMPRecorder()
 
   // 回调只注册一次，每次录音只切换当前会话的 handlers
-  mpHandlers = { onText, onError, onEnd }
+  mpHandlers = { onText, onError, onEnd, onStatus }
 
   function failAuth() {
     wx.showModal({
@@ -236,6 +267,10 @@ function _startMP({ onText, onError, onEnd }) {
       encodeBitRate: 48000,
       format
     })
+    if (mpStopRequested) {
+      mpStopRequested = false
+      try { rm.stop() } catch (e) {}
+    }
   }
 
   // 唤起录音权限 → 开始录音
@@ -256,20 +291,25 @@ function getMPRecorder() {
   mpRecorder.onStop(async res => {
     mpRecording = false
     const handlers = mpHandlers || {}
-    const { onText, onError, onEnd } = handlers
+    const { onText, onError, onEnd, onStatus } = handlers
     try {
       if (res && res.duration <= 300) {
-        onError && onError(new Error('录音太短，没听到内容'))
+        onError && onError(new Error('说太短了，按住多说一会儿'))
         onEnd && onEnd()
         return
       }
-      onText && onText('正在识别…', false)
+      // 状态提示走 onStatus，不能走 onText，否则会被当成正文提交
+      onStatus && onStatus('正在识别…')
       const format = (TENCENT_ASR && TENCENT_ASR.recordFormat) || 'mp3'
       const result = await callASR({ tempFilePath: res.tempFilePath, format })
       if (result.ok) {
-        onText && onText(result.text || '', true)
+        if (result.text) {
+          onText && onText(result.text, true)
+        } else {
+          onError && onError(new Error('没听清，再说一次试试'))
+        }
       } else {
-        onError && onError(new Error(result.error || '识别失败'))
+        onError && onError(new Error(friendlyError(result.error)))
       }
     } catch (e) {
       onError && onError(new Error((e && e.message) || '录音回调异常'))

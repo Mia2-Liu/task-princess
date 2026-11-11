@@ -17,7 +17,7 @@
           @input="onTextInput"
         />
 
-        <view v-if="recording" class="live">
+        <view v-if="recording || recognizing" class="live">
           <view class="wave">
             <view
               v-for="n in 5"
@@ -26,11 +26,17 @@
               :style="{ animationDelay: (n * 0.12) + 's' }"
             ></view>
           </view>
-          <text class="live-text">{{ voiceText || '正在聆听…' }}</text>
+          <text class="live-text">{{ liveText }}</text>
         </view>
 
         <view v-if="showVoice" class="input-foot">
-          <view class="mic" :class="{ recording }" @click="toggleRecord">
+          <view
+            class="mic"
+            :class="{ recording }"
+            @touchstart.prevent="startRecording"
+            @touchend.prevent="stopRecording"
+            @touchcancel.prevent="stopRecording"
+          >
             <view class="mic-icon">
               <view class="mic-body"></view>
               <view class="mic-arc"></view>
@@ -38,9 +44,9 @@
             </view>
           </view>
           <view class="foot-copy">
-            <text class="foot-title">{{ recording ? '点击结束录音' : '点击说话，自动转成文字' }}</text>
+            <text class="foot-title">{{ recording ? '松手结束' : '按住说话' }}</text>
             <text class="foot-sub">
-              {{ recording ? `已录制 ${seconds} 秒` : voiceHint }}
+              {{ recording ? `正在录音 ${seconds} 秒` : voiceHint }}
             </text>
           </view>
         </view>
@@ -159,7 +165,7 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { addTask, addPlan, requestTab } from '@/store/tasks'
 import { decompose } from '@/utils/decompose'
 import { dueMeta, endOfDay, addDays, isSameDay, shortDate } from '@/utils/date'
@@ -172,14 +178,23 @@ const manualAllDay = ref(true)
 const priority = ref(1)
 const preview = ref([])
 const recording = ref(false)
+const recognizing = ref(false)
 const voiceText = ref('')
+const statusText = ref('')
 const seconds = ref(0)
 const usedVoice = ref(false)
 const defaultCategory = ref('')
 
+const liveText = computed(() => {
+  if (recognizing.value) return statusText.value || '正在识别…'
+  if (voiceText.value) return voiceText.value
+  return `正在聆听 ${seconds.value} 秒…`
+})
+
 const categories = computed(() => categoryState.list)
 
 let timer = null
+let starting = false
 
 const hasPreview = computed(() => preview.value.length > 0)
 const validCount = computed(() => preview.value.filter(i => i.title.trim()).length)
@@ -342,59 +357,43 @@ function pickItemCategory(idx) {
   })
 }
 
-function toggleRecord() {
-  if (recording.value) {
-    stopRecording()
-  } else {
-    startRecording()
-  }
-}
-
 function startRecording() {
-  // #ifdef MP-WEIXIN
-  uni.authorize({
-    scope: 'scope.record',
-    success: () => doStartRecording(),
-    fail: () => {
-      uni.showModal({
-        title: '需要麦克风权限',
-        content: '请在设置中允许使用麦克风，才能语音输入任务',
-        confirmText: '去设置',
-        success: res => {
-          if (res.confirm) uni.openSetting()
-        }
-      })
-    }
-  })
-  return
-  // #endif
-
-  // #ifndef MP-WEIXIN
+  if (recording.value || starting.value) return
+  starting.value = true
   doStartRecording()
-  // #endif
 }
 
 function doStartRecording() {
+  starting.value = false
   if (!voiceSupported()) {
     tip('当前环境不支持语音，先手动输入吧')
     return
   }
   voiceText.value = ''
+  statusText.value = ''
   usedVoice.value = true
   const started = startVoice({
     onText: text => {
       voiceText.value = text
     },
+    onStatus: text => {
+      statusText.value = text
+    },
     onError: err => {
-      tip(err.message || '语音识别失败')
+      showVoiceError(err)
+      recognizing.value = false
       endRecording()
     },
     onEnd: () => {
       commitVoiceText()
+      recognizing.value = false
       endRecording()
     }
   })
-  if (!started) return
+  if (!started) {
+    recognizing.value = false
+    return
+  }
 
   recording.value = true
   seconds.value = 0
@@ -405,17 +404,40 @@ function doStartRecording() {
 }
 
 function stopRecording() {
+  if (starting.value) {
+    // 权限还没弹完就松手了，通知底层别真的开录
+    starting.value = false
+    stopVoice()
+    return
+  }
+  if (!recording.value) return
+  recording.value = false
+  recognizing.value = true
+  statusText.value = '正在识别…'
+  if (timer) {
+    clearInterval(timer)
+    timer = null
+  }
   stopVoice()
   // #ifdef H5
   setTimeout(() => {
-    if (recording.value) {
+    if (recognizing.value) {
       commitVoiceText()
+      recognizing.value = false
       endRecording()
     }
   }, 1500)
   // #endif
-  // 小程序端 onStop 一定会回调，不需要兜底定时器，
-  // 否则会把「正在识别…」当成识别结果写进输入框
+  // 小程序端 onStop 一定会回调，不需要兜底定时器
+}
+
+function showVoiceError(err) {
+  const msg = (err && err.message) || '语音识别失败'
+  if (msg.length > 18) {
+    uni.showModal({ title: '语音识别失败', content: msg, showCancel: false, confirmText: '知道了' })
+  } else {
+    tip(msg)
+  }
 }
 
 function commitVoiceText() {
@@ -478,6 +500,19 @@ function onCreate() {
 function tip(title) {
   uni.showToast({ title, icon: 'none' })
 }
+
+onMounted(() => {
+  // #ifdef MP-WEIXIN
+  // 进页面就把录音权限问掉，避免第一次按住说话时被系统弹窗打断长按
+  wx.getSetting({
+    success: res => {
+      if (!res.authSetting['scope.record']) {
+        wx.authorize({ scope: 'scope.record', fail: () => {} })
+      }
+    }
+  })
+  // #endif
+})
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
