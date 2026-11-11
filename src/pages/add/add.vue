@@ -188,7 +188,10 @@ const voiceHint = computed(() => {
   // #ifdef H5
   return '语音由浏览器 Web Speech 提供'
   // #endif
-  // #ifndef H5
+  // #ifdef MP-WEIXIN
+  return '语音由腾讯云 ASR 转写'
+  // #endif
+  // #ifndef H5 || MP-WEIXIN
   return '请手动输入'
   // #endif
 })
@@ -403,12 +406,16 @@ function doStartRecording() {
 
 function stopRecording() {
   stopVoice()
+  // #ifdef H5
   setTimeout(() => {
     if (recording.value) {
       commitVoiceText()
       endRecording()
     }
   }, 1500)
+  // #endif
+  // 小程序端 onStop 一定会回调，不需要兜底定时器，
+  // 否则会把「正在识别…」当成识别结果写进输入框
 }
 
 function commitVoiceText() {

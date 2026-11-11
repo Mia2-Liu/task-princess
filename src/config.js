@@ -3,7 +3,7 @@
 // ============================================================
 // CLOUD_ENV：云开发环境 ID（必填，否则小程序端 voiceSupported() 返回 false）
 //   获取：微信开发者工具 → 云开发控制台 → 设置 → 环境 ID
-export const CLOUD_ENV = ''
+export const CLOUD_ENV = 'cloud1-d2g8pokn50cdfdd93'
 
 // 腾讯云 ASR 密钥（建议**不要**写在前端，改放云函数环境变量）
 // 下面两个字段仅用于 voiceSupported() 在开发时做"配了没"的自检，

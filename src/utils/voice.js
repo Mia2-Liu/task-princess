@@ -21,6 +21,12 @@ const MP_ERROR_TEXT = {
 let recognition = null
 let mediaStream = null
 
+// 小程序端：RecorderManager 是全局单例，回调只能注册一次，
+// 否则每次录音都会叠加一个 onStop，导致重复识别。
+let mpRecorder = null
+let mpHandlers = null
+let mpRecording = false
+
 function isHttpContext() {
   if (typeof window === 'undefined') return false
   const proto = window.location && window.location.protocol
@@ -137,10 +143,9 @@ export function stopVoice() {
   // #endif
 
   // #ifdef MP-WEIXIN
-  try {
-    const rm = wx.getRecorderManager()
-    rm && rm.stop()
-  } catch (e) {}
+  if (mpRecording && mpRecorder) {
+    try { mpRecorder.stop() } catch (e) {}
+  }
   // #endif
 }
 
@@ -199,19 +204,67 @@ function _startSR({ onText, onError, onEnd }) {
 // ============================================================
 function _startMP({ onText, onError, onEnd }) {
   // #ifdef MP-WEIXIN
-  const rm = wx.getRecorderManager()
   const format = (TENCENT_ASR && TENCENT_ASR.recordFormat) || 'mp3'
+  const rm = getMPRecorder()
 
-  // 注册回调（每次 start 前都要注册）
-  rm.onStop(async res => {
+  // 回调只注册一次，每次录音只切换当前会话的 handlers
+  mpHandlers = { onText, onError, onEnd }
+
+  function failAuth() {
+    wx.showModal({
+      title: '需要麦克风权限',
+      content: '请在微信设置里允许小程序使用麦克风：设置 → 隐私设置 → 麦克风',
+      confirmText: '去设置',
+      success: mres => {
+        if (mres.confirm) wx.openSetting()
+      }
+    })
+    onError && onError(new Error(MP_ERROR_TEXT['auth fail']))
+    onEnd && onEnd()
+  }
+
+  function begin() {
+    if (mpRecording) {
+      // 防止重复点击导致 start 报错
+      return
+    }
+    mpRecording = true
+    rm.start({
+      duration: 60000,
+      sampleRate: (TENCENT_ASR && TENCENT_ASR.sampleRate) || 16000,
+      numberOfChannels: 1,
+      encodeBitRate: 48000,
+      format
+    })
+  }
+
+  // 唤起录音权限 → 开始录音
+  wx.authorize({
+    scope: 'scope.record',
+    success: begin,
+    fail: failAuth
+  })
+  // #endif
+}
+
+// 拿到全局唯一的 RecorderManager，并只注册一次回调
+function getMPRecorder() {
+  // #ifdef MP-WEIXIN
+  if (mpRecorder) return mpRecorder
+  mpRecorder = wx.getRecorderManager()
+
+  mpRecorder.onStop(async res => {
+    mpRecording = false
+    const handlers = mpHandlers || {}
+    const { onText, onError, onEnd } = handlers
     try {
       if (res && res.duration <= 300) {
-        // 录音太短，没说什么
         onError && onError(new Error('录音太短，没听到内容'))
         onEnd && onEnd()
         return
       }
       onText && onText('正在识别…', false)
+      const format = (TENCENT_ASR && TENCENT_ASR.recordFormat) || 'mp3'
       const result = await callASR({ tempFilePath: res.tempFilePath, format })
       if (result.ok) {
         onText && onText(result.text || '', true)
@@ -223,38 +276,15 @@ function _startMP({ onText, onError, onEnd }) {
     }
     onEnd && onEnd()
   })
-  rm.onError(err => {
-    const msg = (err && err.errMsg) || '录音失败'
-    onError && onError(new Error(msg))
+
+  mpRecorder.onError(err => {
+    mpRecording = false
+    const handlers = mpHandlers || {}
+    const { onError, onEnd } = handlers
+    onError && onError(new Error((err && err.errMsg) || '录音失败'))
     onEnd && onEnd()
   })
 
-  // 唤起录音权限 → 开始录音
-  wx.authorize({
-    scope: 'scope.record',
-    success: () => {
-      rm.start({
-        duration: 60000,
-        sampleRate: (TENCENT_ASR && TENCENT_ASR.sampleRate) || 16000,
-        numberOfChannels: 1,
-        encodeBitRate: 48000,
-        format
-      })
-    },
-    fail: () => {
-      // 用户还没授权过 → wx.authorize 弹框让用户确认
-      // 已经拒绝过 → 直接失败提示
-      wx.showModal({
-        title: '需要麦克风权限',
-        content: '请在微信设置里允许小程序使用麦克风：设置 → 隐私设置 → 麦克风',
-        confirmText: '去设置',
-        success: mres => {
-          if (mres.confirm) wx.openSetting()
-        }
-      })
-      onError && onError(new Error(MP_ERROR_TEXT['auth fail']))
-      onEnd && onEnd()
-    }
-  })
+  return mpRecorder
   // #endif
 }

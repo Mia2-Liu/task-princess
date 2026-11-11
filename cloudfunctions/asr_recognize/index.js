@@ -18,10 +18,6 @@
 const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
-const fs = require('fs')
-const os = require('os')
-const path = require('path')
-
 let _sdk = null
 function getSDK() {
   if (_sdk) return _sdk
@@ -51,30 +47,28 @@ function initASRClient() {
   return new AsrClient(clientConfig)
 }
 
-// 把微信录音 format 映射成腾讯云 ASR 的 VoiceFormat
-// 参考：https://cloud.tencent.com/document/product/1073/98636
-function mapVoiceFormat(wxFormat) {
-  const map = {
-    mp3: 8,
-    wav: 1,
-    pcm: 2,
-    m4a: 6,
-    aac: 7,
-    ogg: 5
-  }
-  return map[String(wxFormat || 'mp3').toLowerCase()] || 8
+// 腾讯云 SentenceRecognition 的 VoiceFormat 是字符串
+// 支持：wav / pcm / ogg-opus / speex / silk / mp3 / m4a / aac
+// 参考：https://cloud.tencent.com/document/product/1093/35646
+function normalizeVoiceFormat(wxFormat) {
+  const fmt = String(wxFormat || 'mp3').toLowerCase()
+  const allowed = ['wav', 'pcm', 'ogg-opus', 'speex', 'silk', 'mp3', 'm4a', 'aac']
+  return allowed.indexOf(fmt) >= 0 ? fmt : 'mp3'
 }
 
-// 下载云存储文件到 /tmp，返回本地路径
+// 下载云存储文件，返回 Buffer
+// 注意：wx-server-sdk 的 downloadFile 返回的是 { fileContent: Buffer }，
+// 不是 { tempFilePath }，这里不能当成本地路径用。
 async function downloadFromCloud(fileID) {
   const res = await cloud.downloadFile({ fileID })
-  const localPath = res.fileID || res.tempFilePath
-  if (!localPath) throw new Error('cloud.downloadFile returned empty path')
-  return localPath
+  const buf = res && res.fileContent
+  if (!buf || !buf.length) throw new Error('云存储文件为空或下载失败')
+  return buf
 }
 
 // 腾讯云 ASR 一句话识别（≤60秒，≤1MB）
-async function recognizeOneShot(filePath, voiceFormat) {
+// 接口是 SentenceRecognition（同步返回 Result），不是 RecognizeTask（异步任务）。
+async function recognizeOneShot(audioBuf, voiceFormat) {
   const client = initASRClient()
   if (!client) {
     // SDK 没装或密钥没配
@@ -82,45 +76,40 @@ async function recognizeOneShot(filePath, voiceFormat) {
     throw new Error('腾讯云 SecretId/SecretKey 未配置，请在云开发控制台新增环境变量')
   }
 
-  const audioBuf = fs.readFileSync(filePath)
   if (audioBuf.length > 1024 * 1024) {
     throw new Error('音频超过 1MB（一句话识别上限），请控制在 60 秒以内')
   }
 
   const params = {
-    VoiceBase64: audioBuf.toString('base64'),
-    VoiceFormat: mapVoiceFormat(voiceFormat),
-    EngineModelType: '16k_zh',
-    SubServiceType: 0,     // 0: 通用场景
-    UsrAudioKey: `tp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    FilterDirty: 1,        // 脏词过滤
-    ConvertNumMode: 1,     // 阿拉伯数字
+    ProjectId: 0,
+    SubServiceType: 2,          // 2: 一句话识别（mp3/m4a/wav 等）
+    EngSerViceType: '16k_zh',   // 16k 中文通用
+    SourceType: 1,              // 1: 音频数据直传（Data 字段）
+    VoiceFormat: normalizeVoiceFormat(voiceFormat),
+    Data: audioBuf.toString('base64'),
+    DataLen: audioBuf.length,
+    FilterDirty: 1,             // 脏词过滤
+    FilterModal: 1,             // 过滤语气词
+    ConvertNumMode: 1,          // 阿拉伯数字
     WordInfo: 0
   }
 
-  const resp = await client.RecognizeTask(params)
-  if (!resp || resp.Code !== 0) {
-    throw new Error((resp && resp.Message) || 'ASR 返回空结果')
-  }
-
-  const list = resp.FlashResult || []
-  // FlashResult 里每个元素都有 Text 字段，通常只有一个
-  const text = list.map(r => r.Text).join('')
-  return text || ''
+  const resp = await client.SentenceRecognition(params)
+  if (!resp) throw new Error('ASR 返回空结果')
+  return resp.Result || ''
 }
 
 exports.main = async event => {
   const fileID = event && event.fileID
   const voiceFormat = event && event.format || 'mp3'
-  const timeout = Math.min(Number(event && event.timeout) || 30, 60)
 
   if (!fileID) {
     return { ok: false, error: '缺少 fileID' }
   }
 
   try {
-    const localPath = await downloadFromCloud(fileID)
-    const text = await recognizeOneShot(localPath, voiceFormat)
+    const audioBuf = await downloadFromCloud(fileID)
+    const text = await recognizeOneShot(audioBuf, voiceFormat)
     return { ok: true, text }
   } catch (e) {
     return {
