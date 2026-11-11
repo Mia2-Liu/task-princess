@@ -32,6 +32,10 @@ function isHttpContext() {
 
 // ============================================================
 // voiceSupported — 告诉界面能不能显示麦克风按钮
+//
+// MP-WEIXIN 端：getRecorderManager 是微信原生能力，所有版本都有，
+//   所以按钮始终显示。真正需要云开发做语音转写时，startVoice 里
+//   会做 lazy check，没配 CLOUD_ENV 会弹引导。
 // ============================================================
 export function voiceSupported() {
   // #ifdef H5
@@ -40,7 +44,7 @@ export function voiceSupported() {
   // #endif
 
   // #ifdef MP-WEIXIN
-  return isCloudEnabled() && !!TENCENT_ASR
+  return typeof wx !== 'undefined' && !!wx.getRecorderManager
   // #endif
 
   // #ifndef H5 || MP-WEIXIN
@@ -90,7 +94,22 @@ export function startVoice({ onText, onError, onEnd }) {
   // #ifdef MP-WEIXIN
   // --- 微信小程序：getRecorderManager → 云函数识别 ---
   if (!isCloudEnabled()) {
-    onError && onError(new Error('云开发未配置（src/config.js 的 CLOUD_ENV 为空），请先填云开发环境 ID'))
+    // 按钮已经显示了，但云开发没配 → 弹引导，告诉用户三步搞定
+    try {
+      wx.showModal({
+        title: '语音转写需要先配置云开发',
+        content:
+          '语音识别走微信云开发 + 腾讯云 ASR，默认每天 5000 次免费。\n\n' +
+          '需要做 3 件事：\n' +
+          '1. 微信开发者工具 → 云开发 → 开通（免费版就行）\n' +
+          '2. 复制环境 ID，填 src/config.js 里的 CLOUD_ENV\n' +
+          '3. 右键 cloudfunctions/asr_recognize → 上传并部署\n\n' +
+          '代码仓库 README 里有详细步骤。',
+        showCancel: false,
+        confirmText: '好的'
+      })
+    } catch (e) {}
+    onError && onError(new Error('云开发未配置，请按弹窗提示完成 3 步'))
     return false
   }
   _startMP({ onText, onError, onEnd })
