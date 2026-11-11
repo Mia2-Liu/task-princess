@@ -48,6 +48,7 @@
             <text class="foot-sub">
               {{ recording ? `正在录音 ${seconds} 秒` : voiceHint }}
             </text>
+            <text class="build-tag">语音模块 v1.3</text>
           </view>
         </view>
         <view v-else class="input-foot input-foot--muted">
@@ -434,7 +435,12 @@ function stopRecording() {
 function showVoiceError(err) {
   const msg = (err && err.message) || '语音识别失败'
   if (msg.length > 18) {
-    uni.showModal({ title: '语音识别失败', content: msg, showCancel: false, confirmText: '知道了' })
+    uni.showModal({
+      title: '语音识别失败',
+      content: msg + '\n\n自检：云开发控制台 → 云函数列表里应能看到 asr_recognize；没有就是没部署成功。',
+      showCancel: false,
+      confirmText: '知道了'
+    })
   } else {
     tip(msg)
   }
@@ -718,6 +724,12 @@ onUnmounted(() => {
   font-size: 22rpx;
   color: #9a93b0;
   margin-top: 6rpx;
+}
+
+.build-tag {
+  font-size: 18rpx;
+  color: #c6c0d6;
+  margin-top: 4rpx;
 }
 
 .section {
