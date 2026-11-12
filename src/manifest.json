@@ -24,6 +24,7 @@
       "minified": true
     },
     "usingComponents": true,
+    "lazyCodeLoading": "requiredComponents",
     "permission": {
       "scope.record": {
         "desc": "用于语音输入，把你的想法变成任务"
