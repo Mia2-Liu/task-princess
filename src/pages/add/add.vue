@@ -48,7 +48,7 @@
             <text class="foot-sub">
               {{ recording ? `正在录音 ${seconds} 秒` : voiceHint }}
             </text>
-            <text class="build-tag">语音模块 v1.4</text>
+            <text class="build-tag">语音模块 v1.5</text>
           </view>
         </view>
         <view v-else class="input-foot input-foot--muted">

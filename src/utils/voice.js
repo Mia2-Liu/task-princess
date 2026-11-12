@@ -29,6 +29,7 @@ let mpHandlers = null
 let mpRecording = false
 let mpStopRequested = false
 let mpLastStopAt = 0
+let mpResetting = false
 
 // 云函数调用常见错误码 → 人话
 export function friendlyError(msg) {
@@ -268,32 +269,36 @@ function _startMP({ onText, onError, onEnd, onStatus }) {
       // 防止重复点击导致 start 报错
       return
     }
-    // 上一次 stop() 后原生录音器需要一点时间收尾，
-    // 立刻再 start 会报 operateRecorder:fail is recording or paused
+    // 上一次 stop() 后原生录音器需要时间收尾；若录音器卡在 recording/paused
+    // 状态，直接 start() 会一直报 operateRecorder:fail is recording or paused。
+    // 所以先无条件 stop() 清状态，稍等再 start()。
     const gap = Date.now() - mpLastStopAt
-    if (gap < 500) {
-      setTimeout(begin, 500 - gap)
-      return
-    }
-    mpRecording = true
-    try {
-      rm.start({
-        duration: 60000,
-        sampleRate: (TENCENT_ASR && TENCENT_ASR.sampleRate) || 16000,
-        numberOfChannels: 1,
-        encodeBitRate: 48000,
-        format
-      })
-    } catch (e) {
-      mpRecording = false
-      onError && onError(new Error('录音启动失败：' + ((e && e.message) || e)))
-      onEnd && onEnd()
-      return
-    }
-    if (mpStopRequested) {
-      mpStopRequested = false
-      try { rm.stop() } catch (e) {}
-    }
+    const wait = Math.max(200, 350 - gap)
+    mpResetting = true
+    try { rm.stop() } catch (e) {}
+    setTimeout(() => {
+      mpResetting = false
+      if (mpRecording) return
+      mpRecording = true
+      try {
+        rm.start({
+          duration: 60000,
+          sampleRate: (TENCENT_ASR && TENCENT_ASR.sampleRate) || 16000,
+          numberOfChannels: 1,
+          encodeBitRate: 48000,
+          format
+        })
+      } catch (e) {
+        mpRecording = false
+        onError && onError(new Error('录音启动失败：' + ((e && e.message) || e)))
+        onEnd && onEnd()
+        return
+      }
+      if (mpStopRequested) {
+        mpStopRequested = false
+        try { rm.stop() } catch (e) {}
+      }
+    }, wait)
   }
 
   // 唤起录音权限 → 开始录音
@@ -314,6 +319,7 @@ function getMPRecorder() {
   mpRecorder.onStop(async res => {
     mpRecording = false
     mpLastStopAt = Date.now()
+    if (mpResetting) return
     const handlers = mpHandlers || {}
     const { onText, onError, onEnd, onStatus } = handlers
     try {
@@ -342,6 +348,7 @@ function getMPRecorder() {
   })
 
   mpRecorder.onError(err => {
+    if (mpResetting) return
     mpRecording = false
     mpLastStopAt = Date.now()
     const handlers = mpHandlers || {}
