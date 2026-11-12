@@ -359,13 +359,13 @@ function pickItemCategory(idx) {
 }
 
 function startRecording() {
-  if (recording.value || starting.value) return
-  starting.value = true
+  if (recording.value || starting) return
+  starting = true
   doStartRecording()
 }
 
 function doStartRecording() {
-  starting.value = false
+  starting = false
   if (!voiceSupported()) {
     tip('当前环境不支持语音，先手动输入吧')
     return
