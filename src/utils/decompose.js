@@ -169,6 +169,25 @@ const TIME_ANCHOR_RE = /^(?:(?:大后天|后天|明天|明早|明晚|今天|今�
 // 编号识别
 const NUMBERED_ITEM_RE = /^(?:\d{1,2}[.、)）]|(?:[一二三四五六七八九十]+)[、.]|[-*•·●○◆◇])\s*/
 
+// ========== 任务可信度判断 ==========
+// 语音转写经常带口语：疑问句、语气词、给自己下的指令（"拆分一下吧"）。
+// 这些不该变成任务，但也别硬删——疑问句可能藏着真任务，
+// 所以标记为 suspect，界面上默认不勾选，用户可手动补勾。
+const META_CMD_RE = /(拆分一下|拆一下|帮我拆|重新拆|拆成任务|分一下|重新输入|重新识别)\s*[吧了。.!！?？]*$/
+const FILLER_TITLE_RE = /^(?:嗯+|啊+|哦+|呃+|额+|哈+|好的?|行|可以|没事|算了|随便|就是说|这样|对|是)$/
+const QUESTION_RE = /[？?]\s*$|[吗呢吧嘛么]\s*[。.!！?？]?\s*$/
+const ACTION_RE = /(做|写|交|发|买|约|打|看|整理|准备|联系|确认|订|取|送|学|复习|洗|收拾|开|提交|完成|跟进|回复|打印|带|去|找|问|改|修|安装|预约|报名|付|缴|练|读|背|讲|聊|谈|见|清|排|定|兑|寄|报|填|核|上传|下载|更新|检查|参加|打扫|陪|喂|接|跑|办|申请|领|跟|处理)/
+
+export function scorePhrase(title, phrase, parsed) {
+  let score = 0
+  if (parsed && parsed.hasTime) score += 2
+  if (String(title || '').length >= 6) score += 1
+  if (ACTION_RE.test(String(title || ''))) score += 1
+  if (QUESTION_RE.test(String(phrase || '').trim())) score -= 2
+  if (FILLER_TITLE_RE.test(String(title || '').trim())) score -= 3
+  return score
+}
+
 export function splitPhrases(text) {
   let t = String(text || '').replace(/\r/g, '\n').trim()
   if (!t) return []
@@ -238,9 +257,10 @@ export function splitPhrases(text) {
   return merged
 }
 
-export function decompose(text, now = Date.now()) {
+export function decomposeWithMeta(text, now = Date.now()) {
   const phrases = splitPhrases(text)
   const items = []
+  const ignored = []
   let lastDate = null
   let lastCategory = null
 
@@ -252,17 +272,27 @@ export function decompose(text, now = Date.now()) {
     if (cat) lastCategory = cat.categoryId
     const title = cleanTitle(parsed.rest)
     if (!title) return
+
+    // 自己给助手下指令的句子（"拆分一下吧"）不生成任务
+    if (META_CMD_RE.test(phrase) && !parsed.hasTime && title.length <= 12) {
+      ignored.push(phrase)
+      return
+    }
+
+    const score = scorePhrase(title, phrase, parsed)
     const item = {
       title: title.slice(0, 100),
       dueAt: parsed.dueAt,
       dueAllDay: parsed.dueAllDay,
       priority: detectPriority(phrase),
-      categoryId
+      categoryId,
+      suspect: score <= 0,
+      score
     }
     if (!items.some(i => i.title === item.title)) items.push(item)
   })
 
-  if (!items.length) {
+  if (!items.length && !ignored.length) {
     const cat = matchCategory(text)
     const title = cleanTitle(cat ? cat.text : text)
     if (title) {
@@ -271,10 +301,16 @@ export function decompose(text, now = Date.now()) {
         dueAt: null,
         dueAllDay: false,
         priority: detectPriority(text),
-        categoryId: cat ? cat.categoryId : null
+        categoryId: cat ? cat.categoryId : null,
+        suspect: false,
+        score: 1
       })
     }
   }
 
-  return items
+  return { items, ignored }
+}
+
+export function decompose(text, now = Date.now()) {
+  return decomposeWithMeta(text, now).items
 }

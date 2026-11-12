@@ -121,10 +121,22 @@
           <text class="section-label">拆成 {{ validCount }} 个小任务</text>
           <text class="relink" @click="resetPreview">重新输入</text>
         </view>
+        <text v-if="ignoredCount" class="section-hint">
+          已忽略 {{ ignoredCount }} 句口头指令，没算进任务
+        </text>
 
         <view class="preview-card">
-          <view v-for="(item, idx) in preview" :key="idx" class="preview-item">
-            <text class="preview-index">{{ idx + 1 }}</text>
+          <view
+            v-for="(item, idx) in preview"
+            :key="idx"
+            class="preview-item"
+            :class="{ dim: !item.checked }"
+          >
+            <view
+              class="preview-index"
+              :class="{ off: !item.checked }"
+              @click.stop="toggleItem(idx)"
+            >{{ idx + 1 }}</view>
             <view class="preview-main">
               <input v-model="item.title" class="preview-input" :maxlength="100" />
               <view class="preview-meta">
@@ -139,6 +151,7 @@
                   </view>
                 </picker>
                 <text class="mini-tag" :class="'p' + item.priority">{{ priorityLabel(item.priority) }}</text>
+                <text v-if="item.suspect" class="mini-tag suspect">疑似非任务</text>
               </view>
             </view>
             <view class="remove" @click="removePreviewItem(idx)">×</view>
@@ -159,7 +172,7 @@
         {{ hasPreview ? '重新拆分' : '智能拆分' }}
       </view>
       <view class="btn primary" @click="onCreate">
-        {{ hasPreview ? `创建 ${validCount} 个任务` : '创建任务' }}
+        {{ hasPreview ? (validCount ? `创建 ${validCount} 个任务` : '请勾选任务') : '创建任务' }}
       </view>
     </view>
   </view>
@@ -168,7 +181,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { addTask, addPlan, requestTab } from '@/store/tasks'
-import { decompose } from '@/utils/decompose'
+import { decomposeWithMeta } from '@/utils/decompose'
 import { dueMeta, endOfDay, addDays, isSameDay, shortDate } from '@/utils/date'
 import { startVoice, stopVoice, voiceSupported } from '@/utils/voice'
 import { categoryState, hexToRgba, categoryName } from '@/store/categories'
@@ -185,6 +198,7 @@ const statusText = ref('')
 const seconds = ref(0)
 const usedVoice = ref(false)
 const defaultCategory = ref('')
+const ignoredCount = ref(0)
 
 const liveText = computed(() => {
   if (recognizing.value) return statusText.value || '正在识别…'
@@ -198,7 +212,7 @@ let timer = null
 let starting = false
 
 const hasPreview = computed(() => preview.value.length > 0)
-const validCount = computed(() => preview.value.filter(i => i.title.trim()).length)
+const validCount = computed(() => preview.value.filter(i => i.checked && i.title.trim()).length)
 const showVoice = computed(() => voiceSupported())
 const voiceHint = computed(() => {
   // #ifdef H5
@@ -266,7 +280,10 @@ function onManualDateChange(e) {
 }
 
 function onTextInput() {
-  if (preview.value.length) preview.value = []
+  if (preview.value.length) {
+    preview.value = []
+    ignoredCount.value = 0
+  }
 }
 
 function onSmartSplit() {
@@ -275,7 +292,8 @@ function onSmartSplit() {
     tip('先写一句或说一句吧')
     return
   }
-  const items = decompose(text).map(item => {
+  const { items: rawItems, ignored } = decomposeWithMeta(text)
+  const items = rawItems.map(item => {
     const ownDue = item.dueAt !== null
     return {
       ...item,
@@ -283,18 +301,27 @@ function onSmartSplit() {
       dueAllDay: ownDue ? item.dueAllDay : manualAllDay.value,
       priority:
         item.priority === 1 && priority.value !== 1 ? priority.value : item.priority,
-      categoryId: item.categoryId || defaultCategory.value || null
+      categoryId: item.categoryId || defaultCategory.value || null,
+      checked: !item.suspect
     }
   })
   if (!items.length) {
+    ignoredCount.value = ignored.length
     tip('没有识别到可以拆分的任务')
     return
   }
   preview.value = items
+  ignoredCount.value = ignored.length
+}
+
+function toggleItem(idx) {
+  const item = preview.value[idx]
+  if (item) item.checked = !item.checked
 }
 
 function resetPreview() {
   preview.value = []
+  ignoredCount.value = 0
 }
 
 function removePreviewItem(idx) {
@@ -468,10 +495,10 @@ function endRecording() {
 function onCreate() {
   if (hasPreview.value) {
     const items = preview.value
-      .filter(i => i.title.trim())
+      .filter(i => i.checked && i.title.trim())
       .map(i => ({ ...i, title: i.title.trim() }))
     if (!items.length) {
-      tip('请至少保留一个任务')
+      tip('请至少勾选一个任务')
       return
     }
     const source = usedVoice.value ? 'voice' : 'manual'
@@ -804,9 +831,20 @@ onUnmounted(() => {
   padding: 24rpx 0;
   border-bottom: 1rpx dashed #f0ecfa;
 
+  &.dim {
+    opacity: 0.55;
+  }
+
   &:last-child {
     border-bottom: none;
   }
+}
+
+.section-hint {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #b0a9c4;
 }
 
 .preview-index {
@@ -822,6 +860,12 @@ onUnmounted(() => {
   justify-content: center;
   flex-shrink: 0;
   margin-top: 4rpx;
+
+  &.off {
+    background: #f5f3fa;
+    color: #c6c0d6;
+    border: 1rpx dashed #ded8ee;
+  }
 }
 
 .preview-main {
@@ -879,6 +923,11 @@ onUnmounted(() => {
   &.p0 {
     color: #8e87a6;
     background: #f0eef7;
+  }
+
+  &.suspect {
+    color: #c08a3e;
+    background: #fff6e8;
   }
 }
 
