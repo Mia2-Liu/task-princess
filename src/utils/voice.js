@@ -28,6 +28,7 @@ let mpRecorder = null
 let mpHandlers = null
 let mpRecording = false
 let mpStopRequested = false
+let mpLastStopAt = 0
 
 // 云函数调用常见错误码 → 人话
 export function friendlyError(msg) {
@@ -267,14 +268,28 @@ function _startMP({ onText, onError, onEnd, onStatus }) {
       // 防止重复点击导致 start 报错
       return
     }
+    // 上一次 stop() 后原生录音器需要一点时间收尾，
+    // 立刻再 start 会报 operateRecorder:fail is recording or paused
+    const gap = Date.now() - mpLastStopAt
+    if (gap < 500) {
+      setTimeout(begin, 500 - gap)
+      return
+    }
     mpRecording = true
-    rm.start({
-      duration: 60000,
-      sampleRate: (TENCENT_ASR && TENCENT_ASR.sampleRate) || 16000,
-      numberOfChannels: 1,
-      encodeBitRate: 48000,
-      format
-    })
+    try {
+      rm.start({
+        duration: 60000,
+        sampleRate: (TENCENT_ASR && TENCENT_ASR.sampleRate) || 16000,
+        numberOfChannels: 1,
+        encodeBitRate: 48000,
+        format
+      })
+    } catch (e) {
+      mpRecording = false
+      onError && onError(new Error('录音启动失败：' + ((e && e.message) || e)))
+      onEnd && onEnd()
+      return
+    }
     if (mpStopRequested) {
       mpStopRequested = false
       try { rm.stop() } catch (e) {}
@@ -298,6 +313,7 @@ function getMPRecorder() {
 
   mpRecorder.onStop(async res => {
     mpRecording = false
+    mpLastStopAt = Date.now()
     const handlers = mpHandlers || {}
     const { onText, onError, onEnd, onStatus } = handlers
     try {
@@ -327,9 +343,15 @@ function getMPRecorder() {
 
   mpRecorder.onError(err => {
     mpRecording = false
+    mpLastStopAt = Date.now()
     const handlers = mpHandlers || {}
     const { onError, onEnd } = handlers
-    onError && onError(new Error((err && err.errMsg) || '录音失败'))
+    const raw = (err && err.errMsg) || '录音失败'
+    if (raw.indexOf('is recording or paused') >= 0) {
+      onError && onError(new Error('录音还没结束，请松开后等一秒再按一次'))
+    } else {
+      onError && onError(new Error(raw))
+    }
     onEnd && onEnd()
   })
 
