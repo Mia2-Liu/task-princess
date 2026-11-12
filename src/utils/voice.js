@@ -49,6 +49,10 @@ export function friendlyError(msg) {
       '3. 等 1 分钟再试\n\n' +
       '错误原文：' + text
   }
+  if (text.toLowerCase().indexOf('audio data empty') >= 0) {
+    return '这次没采到声音（录音为空）。请按住按钮 2 秒以上再松手，' +
+      '说话时注意别让手指挡住手机底部麦克风。错误原文：' + text
+  }
   if (text.indexOf('-501000') >= 0 || text.indexOf('-601001') >= 0) {
     return '云开发环境不可用，请检查 src/config.js 里的 CLOUD_ENV 是否正确'
   }

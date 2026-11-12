@@ -107,14 +107,22 @@ exports.main = async event => {
     return { ok: false, error: '缺少 fileID' }
   }
 
+  let audioBuf = null
   try {
-    const audioBuf = await downloadFromCloud(fileID)
+    audioBuf = await downloadFromCloud(fileID)
+    const size = audioBuf.length
+    if (size < 1000) {
+      return { ok: false, error: `录音数据太少（${size} 字节），请按住说 2 秒以上再松手` }
+    }
     const text = await recognizeOneShot(audioBuf, voiceFormat)
     return { ok: true, text }
   } catch (e) {
+    const code = (e && (e.code || (e.Error && e.Error.Code))) || ''
+    const msg = (e && (e.msg || e.message)) || String(e)
+    const size = audioBuf ? audioBuf.length : 0
     return {
       ok: false,
-      error: e && (e.msg || e.message) || String(e)
+      error: (code ? code + ' ' : '') + msg + `（音频 ${size} 字节）`
     }
   }
 }
