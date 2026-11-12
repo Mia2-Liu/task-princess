@@ -1,5 +1,5 @@
 <template>
-  <view class="task-card" :class="cardClass" @longpress="onDelete(task)">
+  <view class="task-card" :class="cardClass" @longpress="openMenu(task)">
     <view class="task-head">
       <view class="check" :class="checkClass" @click.stop="toggleDone(task.id)">
         <text v-if="isDone" class="check-mark">✓</text>
@@ -34,7 +34,7 @@
     </view>
 
     <view v-if="isGroup && expanded" class="subs">
-      <view v-for="child in children" :key="child.id" class="sub-row" @longpress.stop="onDelete(child)">
+      <view v-for="child in children" :key="child.id" class="sub-row" @longpress.stop="openMenu(child)">
         <view class="check small" :class="{ done: isDoneOf(child) }" @click.stop="toggleDone(child.id)">
           <text v-if="isDoneOf(child)" class="check-mark">✓</text>
         </view>
@@ -49,6 +49,52 @@
         </text>
       </view>
     </view>
+
+    <!-- 编辑弹层 -->
+    <view v-if="editing" class="edit-mask" @click.stop="closeEdit">
+      <view class="edit-panel" @click.stop>
+        <text class="edit-title">编辑任务</text>
+        <input
+          v-model="editing.title"
+          class="edit-input"
+          :maxlength="100"
+          placeholder="任务标题"
+          placeholder-class="edit-ph"
+        />
+
+        <text class="edit-label">归到</text>
+        <view class="edit-chips">
+          <view
+            class="chip"
+            :class="{ active: editing.categoryId === '' }"
+            @click="editing.categoryId = ''"
+          >不归类</view>
+          <view
+            v-for="c in categoryState.list"
+            :key="c.id"
+            class="chip"
+            :class="{ active: editing.categoryId === c.id }"
+            :style="chipStyle(c)"
+            @click="editing.categoryId = c.id"
+          >{{ c.name }}</view>
+        </view>
+
+        <text class="edit-label">截止时间</text>
+        <view class="edit-chips">
+          <view class="chip" :class="{ active: !editing.dueAt }" @click="setDue(null)">无</view>
+          <view class="chip" :class="{ active: isDueKey('today') }" @click="setDue('today')">今天</view>
+          <view class="chip" :class="{ active: isDueKey('tomorrow') }" @click="setDue('tomorrow')">明天</view>
+          <picker mode="date" :value="editingDateValue" @change="onDatePick">
+            <view class="chip" :class="{ active: isCustomDue }">{{ isCustomDue ? shortDate(editing.dueAt) : '选日期' }}</view>
+          </picker>
+        </view>
+
+        <view class="edit-actions">
+          <view class="edit-btn ghost" @click="closeEdit">取消</view>
+          <view class="edit-btn primary" @click="saveEdit">保存</view>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -59,20 +105,22 @@ import {
   toggleTask,
   setTaskStatus,
   removeTask,
+  updateTask,
   effectiveDue,
   effectivePriority,
   dueAllDayOf,
   STATUS,
   STATUS_LABEL
 } from '@/store/tasks'
-import { dueMeta } from '@/utils/date'
-import { getCategory, hexToRgba } from '@/store/categories'
+import { dueMeta, endOfDay, addDays, isSameDay, shortDate } from '@/utils/date'
+import { getCategory, hexToRgba, categoryState } from '@/store/categories'
 
 const props = defineProps({
   task: { type: Object, required: true }
 })
 
 const expanded = ref(true)
+const editing = ref(null)
 const children = computed(() => childrenOf(props.task.id))
 const isGroup = computed(() => children.value.length > 0)
 const isDone = computed(() => props.task.status === STATUS.DONE)
@@ -109,6 +157,14 @@ const checkClass = computed(() => {
   if (isGroup.value && doneCount.value > 0) return 'partial'
   return ''
 })
+const isCustomDue = computed(() => {
+  if (!editing.value || !editing.value.dueAt) return false
+  return !isSameDay(editing.value.dueAt, Date.now()) && !isSameDay(editing.value.dueAt, addDays(Date.now(), 1))
+})
+const editingDateValue = computed(() => {
+  const ts = editing.value && editing.value.dueAt ? editing.value.dueAt : Date.now()
+  return toDateString(ts)
+})
 
 function isDoneOf(child) { return child.status === STATUS.DONE }
 
@@ -127,7 +183,11 @@ function showStatusPicker(t) {
 }
 
 function onBodyTap() {
-  if (isGroup.value) expanded.value = !expanded.value
+  if (isGroup.value) {
+    expanded.value = !expanded.value
+  } else {
+    openEdit(props.task)
+  }
 }
 
 function childDue(child) {
@@ -142,6 +202,86 @@ function childCatStyle(child) {
   const hit = childCat(child)
   if (!hit) return {}
   return { color: hit.color, background: hexToRgba(hit.color, 0.14) }
+}
+
+function openMenu(t) {
+  uni.showActionSheet({
+    itemList: ['编辑任务', '删除任务'],
+    success: res => {
+      if (res.tapIndex === 0) openEdit(t)
+      if (res.tapIndex === 1) onDelete(t)
+    }
+  })
+}
+
+function openEdit(t) {
+  editing.value = {
+    id: t.id,
+    title: t.title,
+    categoryId: t.categoryId || '',
+    dueAt: t.dueAt || null,
+    dueAllDay: !!t.dueAllDay
+  }
+}
+
+function closeEdit() {
+  editing.value = null
+}
+
+function chipStyle(c) {
+  return { color: c.color, background: hexToRgba(c.color, 0.14) }
+}
+
+function toDateString(ts) {
+  const d = new Date(ts)
+  const m = `${d.getMonth() + 1}`.padStart(2, '0')
+  const day = `${d.getDate()}`.padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
+function isDueKey(key) {
+  const ts = editing.value && editing.value.dueAt
+  if (!ts) return false
+  const target = key === 'today' ? Date.now() : addDays(Date.now(), 1)
+  return isSameDay(ts, target)
+}
+
+function setDue(key) {
+  if (!editing.value) return
+  if (!key) {
+    editing.value.dueAt = null
+    editing.value.dueAllDay = false
+    return
+  }
+  const base = key === 'today' ? Date.now() : addDays(Date.now(), 1)
+  editing.value.dueAt = endOfDay(base)
+  editing.value.dueAllDay = true
+}
+
+function onDatePick(e) {
+  if (!editing.value) return
+  const [y, m, d] = String(e.detail.value).split('-').map(Number)
+  if (!y || !m || !d) return
+  editing.value.dueAt = endOfDay(new Date(y, m - 1, d).getTime())
+  editing.value.dueAllDay = true
+}
+
+function saveEdit() {
+  const cur = editing.value
+  if (!cur) return
+  const title = String(cur.title || '').trim()
+  if (!title) {
+    uni.showToast({ title: '标题不能为空', icon: 'none' })
+    return
+  }
+  updateTask(cur.id, {
+    title,
+    categoryId: cur.categoryId || null,
+    dueAt: cur.dueAt || null,
+    dueAllDay: !!cur.dueAllDay
+  })
+  editing.value = null
+  uni.showToast({ title: '已保存', icon: 'none' })
 }
 
 function onDelete(t) {
@@ -383,5 +523,101 @@ function onDelete(t) {
 
   &.overdue { color: #ff5f76; }
   &.today { color: #f09a3e; }
+}
+
+.edit-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(30, 24, 60, 0.42);
+  z-index: 999;
+  display: flex;
+  align-items: flex-end;
+}
+
+.edit-panel {
+  width: 100%;
+  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 34rpx 32rpx 56rpx;
+}
+
+.edit-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #2b2540;
+}
+
+.edit-input {
+  margin-top: 20rpx;
+  background: #f7f5fd;
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  font-size: 28rpx;
+  color: #2b2540;
+}
+
+.edit-ph {
+  color: #b0aac2;
+}
+
+.edit-label {
+  display: block;
+  margin-top: 28rpx;
+  font-size: 24rpx;
+  color: #8e87a6;
+}
+
+.edit-chips {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 14rpx;
+
+  .chip {
+    padding: 10rpx 24rpx;
+    margin: 0 14rpx 14rpx 0;
+    border-radius: 999rpx;
+    background: #f4f2fa;
+    color: #6e6684;
+    font-size: 24rpx;
+    border: 1rpx solid transparent;
+
+    &.active {
+      border-color: rgba(124, 108, 240, 0.4);
+      color: #5b4bd6;
+      background: #efeaff;
+      font-weight: 600;
+    }
+  }
+}
+
+.edit-actions {
+  display: flex;
+  margin-top: 22rpx;
+}
+
+.edit-btn {
+  flex: 1;
+  height: 84rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  font-weight: 600;
+
+  &.ghost {
+    background: #f4f2fa;
+    color: #6e6684;
+    margin-right: 18rpx;
+  }
+
+  &.primary {
+    background: linear-gradient(135deg, #7c6cf0, #b49cff);
+    color: #ffffff;
+  }
 }
 </style>

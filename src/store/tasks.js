@@ -155,6 +155,25 @@ export function addPlan(title, items, source = 'voice') {
   return parent
 }
 
+export function updateTask(id, patch = {}) {
+  const task = getTask(id)
+  if (!task) return null
+  if (patch.title !== undefined) {
+    const title = String(patch.title || '').trim().slice(0, 100)
+    if (title) task.title = title
+  }
+  if (patch.categoryId !== undefined) task.categoryId = patch.categoryId || null
+  if (patch.dueAt !== undefined) {
+    task.dueAt = patch.dueAt || null
+    if (!task.dueAt) task.dueAllDay = false
+  }
+  if (patch.dueAllDay !== undefined) task.dueAllDay = !!patch.dueAllDay
+  if (typeof patch.priority === 'number') task.priority = patch.priority
+  task.updatedAt = Date.now()
+  saveTasks()
+  return task
+}
+
 function syncParent(parentId) {
   if (!parentId) return
   const parent = getTask(parentId)
