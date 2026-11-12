@@ -180,7 +180,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { addTask, addPlan, requestTab } from '@/store/tasks'
+import { addTask, requestTab } from '@/store/tasks'
 import { decomposeWithMeta } from '@/utils/decompose'
 import { dueMeta, endOfDay, addDays, isSameDay, shortDate } from '@/utils/date'
 import { startVoice, stopVoice, voiceSupported } from '@/utils/voice'
@@ -502,13 +502,9 @@ function onCreate() {
       return
     }
     const source = usedVoice.value ? 'voice' : 'manual'
-    const cats = new Set(items.map(i => i.categoryId || ''))
-    if (items.length === 1 || cats.size > 1) {
-      items.forEach(item => addTask({ ...item, source }))
-    } else {
-      const groupTitle = rawText.value.trim() || '新任务'
-      addPlan(groupTitle.slice(0, 40), items, source)
-    }
+    // 每条任务各自独立创建：不把整段语音原文当成"计划标题"，
+    // 也不把不同日期的任务塞进同一个父任务。
+    items.forEach(item => addTask({ ...item, source }))
   } else {
     const text = rawText.value.trim()
     if (!text) {
