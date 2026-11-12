@@ -40,6 +40,13 @@ export function friendlyError(msg) {
   if (text.indexOf('-504002') >= 0) {
     return '云函数执行出错，请到云开发控制台 → 云函数 → asr_recognize → 日志 查看原因'
   }
+  if (text.toLowerCase().indexOf('unopened') >= 0) {
+    return '腾讯云账号还没开通「语音识别」服务。\n\n' +
+      '1. 打开 https://console.cloud.tencent.com/asr\n' +
+      '2. 点击「立即开通」，完成实名认证\n' +
+      '3. 等 1 分钟再试\n\n' +
+      '错误原文：' + text
+  }
   if (text.indexOf('-501000') >= 0 || text.indexOf('-601001') >= 0) {
     return '云开发环境不可用，请检查 src/config.js 里的 CLOUD_ENV 是否正确'
   }

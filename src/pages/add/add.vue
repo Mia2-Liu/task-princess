@@ -437,7 +437,7 @@ function showVoiceError(err) {
   if (msg.length > 18) {
     uni.showModal({
       title: '语音识别失败',
-      content: msg + '\n\n自检：云开发控制台 → 云函数列表里应能看到 asr_recognize；没有就是没部署成功。',
+      content: msg,
       showCancel: false,
       confirmText: '知道了'
     })
